@@ -4,6 +4,13 @@ import numpy as np
 import os
 import sys
 
+# Optional imports with fallbacks
+try:
+    import matplotlib.pyplot as plt
+    MATPLOTLIB_AVAILABLE = True
+except ImportError:
+    MATPLOTLIB_AVAILABLE = False
+
 # Add src to path
 sys.path.append('src')
 
@@ -244,7 +251,17 @@ def show_overview(train_data):
     with col2:
         # Monthly charges distribution
         st.subheader("Monthly Charges Distribution")
-        st.histogram(train_data['monthly_charges'])
+        if MATPLOTLIB_AVAILABLE:
+            fig, ax = plt.subplots(figsize=(8, 4))
+            ax.hist(train_data['monthly_charges'], bins=20, alpha=0.7, color='skyblue', edgecolor='black')
+            ax.set_xlabel('Monthly Charges ($)')
+            ax.set_ylabel('Number of Customers')
+            st.pyplot(fig)
+            plt.close()
+        else:
+            # Fallback to simple bar chart if matplotlib not available
+            charges_binned = pd.cut(train_data['monthly_charges'], bins=10).value_counts().sort_index()
+            st.bar_chart(charges_binned)
 
 def show_data_explorer(train_data):
     """Interactive data exploration"""
