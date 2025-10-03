@@ -10,43 +10,57 @@ if [ ! -f "streamlit_app.py" ]; then
     exit 1
 fi
 
-# Activate virtual environment
-if [ -d ".venv" ]; then
-    echo "🔧 Activating virtual environment..."
-    source .venv/bin/activate
-else
-    echo "❌ Virtual environment not found. Please run: python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt"
+# Check Python version
+PYTHON_VERSION=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+echo "🐍 Detected Python version: $PYTHON_VERSION"
+
+if [[ "$PYTHON_VERSION" < "3.9" ]]; then
+    echo "❌ Python 3.9+ is required. Current version: $PYTHON_VERSION"
     exit 1
 fi
 
-# Install streamlit if not already installed
-echo "📦 Checking Streamlit installation..."
-pip install streamlit==1.28.1 > /dev/null 2>&1
+# Install required packages
+echo "📦 Installing required packages..."
+python3 -m pip install streamlit pandas numpy scikit-learn matplotlib seaborn joblib --quiet
 
-# Check if model files exist
-if [ ! -f "local_churn_model.pkl" ]; then
-    echo "⚠️ Model files not found. Training a quick model..."
-    python -c "
+if [ $? -ne 0 ]; then
+    echo "⚠️ Some packages failed to install. Trying basic installation..."
+    python3 -m pip install streamlit pandas numpy --quiet
+fi
+
+# Generate sample data if missing
+if [ ! -f "data/train_data.csv" ]; then
+    echo "📊 Generating sample data..."
+    python3 -c "
 import sys; sys.path.append('src')
-from train import ChurnModelTrainer
+import os
 import pandas as pd
+import numpy as np
 
-# Load or generate data
-try:
-    train_data = pd.read_csv('data/train_data.csv')
-except:
-    from utils import generate_churn_data
-    import os
-    os.makedirs('data', exist_ok=True)
-    train_data, test_data, pred_data = generate_churn_data(5000)
-    train_data.to_csv('data/train_data.csv', index=False)
-    test_data.to_csv('data/test_data.csv', index=False)
-    pred_data.to_csv('data/customers_to_predict.csv', index=False)
+# Simple data generation
+np.random.seed(42)
+n_samples = 1000
 
-# Train model
-trainer = ChurnModelTrainer()
-model, encoders, metrics = trainer.train_local_model(train_data)
-print('✅ Model trained and ready!')
+data = {
+    'customer_id': [f'CUST_{i:06d}' for i in range(1, n_samples + 1)],
+    'age': np.random.normal(35, 12, n_samples).astype(int),
+    'tenure_months': np.random.exponential(24, n_samples).astype(int),
+    'monthly_charges': np.random.normal(65, 25, n_samples),
+    'total_charges': np.random.normal(1500, 800, n_samples),
+    'contract_type': np.random.choice(['Month-to-month', 'One year', 'Two year'], n_samples),
+    'payment_method': np.random.choice(['Electronic check', 'Credit card', 'Bank transfer', 'Mailed check'], n_samples),
+    'internet_service': np.random.choice(['DSL', 'Fiber optic', 'No'], n_samples),
+    'support_calls': np.random.poisson(2, n_samples),
+    'avg_call_duration': np.random.exponential(8, n_samples),
+    'data_usage_gb': np.random.lognormal(3, 1, n_samples),
+    'login_frequency': np.random.poisson(15, n_samples),
+    'churned': np.random.binomial(1, 0.3, n_samples)
+}
+
+df = pd.DataFrame(data)
+os.makedirs('data', exist_ok=True)
+df.to_csv('data/train_data.csv', index=False)
+print('✅ Sample data generated!')
 "
 fi
 
