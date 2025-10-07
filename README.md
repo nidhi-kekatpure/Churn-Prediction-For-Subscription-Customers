@@ -12,6 +12,14 @@ A complete machine learning project to predict subscription customer churn using
 - Targeted marketing campaigns
 - Customer lifetime value optimization
 
+---
+
+## Live Demo
+
+**Try the app now**: https://vendor-analytics.streamlit.app/
+
+---
+
 ## Architecture
 
 ```
