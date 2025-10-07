@@ -16,7 +16,7 @@ A complete machine learning project to predict subscription customer churn using
 
 ## Live Demo
 
-**Try the app now**: https://vendor-analytics.streamlit.app/
+**Try the app now**: https://churn-prediction-for-customers.streamlit.app/
 
 ---
 
