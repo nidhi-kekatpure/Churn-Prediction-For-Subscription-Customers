@@ -1,11 +1,14 @@
 import pandas as pd
 import numpy as np
 import json
-import boto3
-import sagemaker
-from sagemaker.xgboost import XGBoost
-from sagemaker.inputs import TrainingInput
 from sklearn.model_selection import train_test_split
+
+AWS_AVAILABLE = False
+try:
+    import boto3
+    AWS_AVAILABLE = True
+except ImportError:
+    pass
 from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import roc_auc_score, classification_report
 import joblib
@@ -16,16 +19,28 @@ from visualize import create_eda_visualizations, create_model_performance_charts
 class ChurnModelTrainer:
     def __init__(self, config_path='aws_config.json'):
         """Initialize trainer with AWS configuration"""
-        with open(config_path, 'r') as f:
-            self.config = json.load(f)
-        
-        # Create boto session with correct region
-        boto_session = boto3.Session(region_name=self.config['region'])
-        self.sagemaker_session = sagemaker.Session(boto_session=boto_session)
-        self.role = self.config['role_arn']
-        self.bucket = self.config['bucket_name']
-        
-        print(f"✅ SageMaker session initialized for region: {self.config['region']}")
+        self.config = {}
+        self.sagemaker_session = None
+        self.role = None
+        self.bucket = None
+
+        if AWS_AVAILABLE and os.path.exists(config_path):
+            with open(config_path, 'r') as f:
+                self.config = json.load(f)
+
+            try:
+                import sagemaker
+                # Create boto session with correct region
+                boto_session = boto3.Session(region_name=self.config['region'])
+                self.sagemaker_session = sagemaker.Session(boto_session=boto_session)
+                self.role = self.config['role_arn']
+                self.bucket = self.config['bucket_name']
+                print(f"✅ SageMaker session initialized for region: {self.config['region']}")
+            except Exception as e:
+                print(f"⚠️  Could not initialize SageMaker session: {e}")
+                print("ℹ️  Local training mode only.")
+        else:
+            print("ℹ️  AWS packages not available. Local training mode only.")
         
     def preprocess_data(self, df):
         """Preprocess the data for training"""
@@ -128,7 +143,16 @@ class ChurnModelTrainer:
     
     def train_sagemaker_model(self, train_data):
         """Train model using SageMaker XGBoost"""
-        
+        try:
+            import sagemaker
+            from sagemaker.xgboost import XGBoost
+            from sagemaker.inputs import TrainingInput
+        except ImportError:
+            raise RuntimeError("sagemaker package is required for this method. Run: pip install sagemaker")
+
+        if self.sagemaker_session is None:
+            raise RuntimeError("AWS/SageMaker session not initialized. Check aws_config.json and boto3 installation.")
+
         # Preprocess data
         processed_data, label_encoders = self.preprocess_data(train_data)
         
@@ -303,6 +327,9 @@ def main():
     proceed = input("\n🤔 Local model trained successfully. Proceed with SageMaker training? (y/n): ")
     
     if proceed.lower() == 'y':
+        if not AWS_AVAILABLE:
+            print("❌ boto3/sagemaker not installed. Run: pip install boto3 sagemaker")
+            return local_model, encoders
         print("\n☁️ Training model on SageMaker...")
         sagemaker_model, metadata = trainer.train_sagemaker_model(train_data)
         print("✅ SageMaker training completed!")
