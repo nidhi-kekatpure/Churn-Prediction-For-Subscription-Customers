@@ -1,28 +1,39 @@
 import pandas as pd
 import numpy as np
 import json
-import boto3
-import sagemaker
-from sagemaker.predictor import Predictor
-from sagemaker.serializers import CSVSerializer
-from sagemaker.deserializers import CSVDeserializer
 import joblib
 import os
 from utils import calculate_model_metrics
 
+# AWS packages are optional — only needed for SageMaker inference
+try:
+    import boto3
+    import sagemaker
+    from sagemaker.predictor import Predictor
+    from sagemaker.serializers import CSVSerializer
+    from sagemaker.deserializers import CSVDeserializer
+    AWS_AVAILABLE = True
+except Exception:
+    AWS_AVAILABLE = False
+
 class ChurnPredictor:
     def __init__(self, config_path='aws_config.json'):
         """Initialize predictor with AWS configuration"""
-        if os.path.exists(config_path):
-            with open(config_path, 'r') as f:
-                self.config = json.load(f)
-            # Create boto session with correct region
-            boto_session = boto3.Session(region_name=self.config['region'])
-            self.sagemaker_session = sagemaker.Session(boto_session=boto_session)
-            print(f"✅ SageMaker session initialized for region: {self.config['region']}")
+        self.sagemaker_session = None
+        if AWS_AVAILABLE and os.path.exists(config_path):
+            try:
+                with open(config_path, 'r') as f:
+                    self.config = json.load(f)
+                # Create boto session with correct region
+                boto_session = boto3.Session(region_name=self.config['region'])
+                self.sagemaker_session = sagemaker.Session(boto_session=boto_session)
+                print(f"✅ SageMaker session initialized for region: {self.config['region']}")
+            except Exception as e:
+                self.config = None
+                print(f"⚠️  Could not initialize SageMaker session: {e}")
         else:
             self.config = None
-            print("⚠️ AWS config not found. Using local model only.")
+            print("⚠️ AWS not available or config not found. Using local model only.")
     
     def load_local_model(self):
         """Load locally trained model and encoders"""
