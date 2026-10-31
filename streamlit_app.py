@@ -11,8 +11,8 @@ try:
 except ImportError:
     MATPLOTLIB_AVAILABLE = False
 
-# Add src to path
-sys.path.append('src')
+# Add src to path (absolute path so it works on Streamlit Cloud too)
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'src'))
 
 # Page configuration
 st.set_page_config(
@@ -99,15 +99,56 @@ def load_data():
 
 @st.cache_resource
 def load_model():
-    """Load trained model and encoders"""
+    """Load trained model and encoders, training if not present (v2)"""
+    import joblib
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    model_path = os.path.join(base_dir, 'local_churn_model.pkl')
+    encoders_path = os.path.join(base_dir, 'label_encoders.pkl')
+
+    # Train if model files don't exist
+    if not os.path.exists(model_path) or not os.path.exists(encoders_path):
+        try:
+            from xgboost import XGBClassifier
+            from sklearn.preprocessing import LabelEncoder
+            from sklearn.model_selection import train_test_split
+
+            train_data = pd.read_csv(os.path.join(base_dir, 'data', 'train_data.csv'))
+
+            data = train_data.copy()
+            label_encoders = {}
+            for col in ['contract_type', 'payment_method', 'internet_service']:
+                le = LabelEncoder()
+                data[col] = le.fit_transform(data[col])
+                label_encoders[col] = le
+
+            data['charges_per_month_tenure'] = data['monthly_charges'] / (data['tenure_months'] + 1)
+            data['total_charges_per_tenure'] = data['total_charges'] / (data['tenure_months'] + 1)
+            data['avg_monthly_usage'] = data['data_usage_gb'] / (data['tenure_months'] + 1)
+            data['support_calls_per_month'] = data['support_calls'] / (data['tenure_months'] + 1)
+
+            numeric_cols = data.select_dtypes(include=[np.number]).columns
+            data[numeric_cols] = data[numeric_cols].fillna(data[numeric_cols].median())
+
+            X = data.drop(['churned', 'customer_id'], axis=1)
+            y = data['churned']
+
+            model = XGBClassifier(
+                n_estimators=100, max_depth=6, learning_rate=0.1,
+                subsample=0.8, colsample_bytree=0.8,
+                random_state=42, eval_metric='auc'
+            )
+            model.fit(X, y)
+
+            joblib.dump(model, model_path)
+            joblib.dump(label_encoders, encoders_path)
+        except Exception as e:
+            st.error(f"Error training model: {e}")
+            return None, None
+
     try:
-        import joblib
-        model = joblib.load('local_churn_model.pkl')
-        encoders = joblib.load('label_encoders.pkl')
+        model = joblib.load(model_path)
+        encoders = joblib.load(encoders_path)
         return model, encoders
-    except (FileNotFoundError, ImportError):
-        st.warning("Model files not found or joblib not available. Using heuristic predictions.")
-        return None, None
     except Exception as e:
         st.error(f"Error loading model: {e}")
         return None, None
@@ -398,8 +439,32 @@ def show_prediction_interface(model, encoders):
             'login_frequency': login_frequency
         }
         
-        # Make prediction (use simple prediction if model not available)
-        churn_probability = simple_predict(input_data)
+        # Use real model if available, otherwise fall back to heuristic
+        if model is not None and encoders is not None:
+            try:
+                import joblib
+                input_df = pd.DataFrame([input_data])
+                # Encode categorical columns
+                for col in ['contract_type', 'payment_method', 'internet_service']:
+                    if col in encoders:
+                        input_df[col] = input_df[col].map(
+                            lambda x, c=col: encoders[c].transform([x])[0]
+                            if x in encoders[c].classes_ else 0
+                        )
+                # Feature engineering
+                input_df['charges_per_month_tenure'] = input_df['monthly_charges'] / (input_df['tenure_months'] + 1)
+                input_df['total_charges_per_tenure'] = input_df['total_charges'] / (input_df['tenure_months'] + 1)
+                input_df['avg_monthly_usage'] = input_df['data_usage_gb'] / (input_df['tenure_months'] + 1)
+                input_df['support_calls_per_month'] = input_df['support_calls'] / (input_df['tenure_months'] + 1)
+                # Drop customer_id if present, align columns to model
+                feature_cols = input_df.select_dtypes(include=[np.number]).columns
+                churn_probability = float(model.predict_proba(input_df[feature_cols])[:, 1][0])
+            except Exception as e:
+                st.warning(f"Model prediction failed ({e}), using heuristic instead.")
+                churn_probability = simple_predict(input_data)
+        else:
+            churn_probability = simple_predict(input_data)
+
         churn_prediction = 1 if churn_probability > 0.5 else 0
         
         # Determine risk level
